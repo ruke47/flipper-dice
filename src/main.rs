@@ -5,27 +5,49 @@
 #![no_main]
 #![no_std]
 
-// Required for panic handler
-extern crate flipperzero_rt;
-
 // Required for allocator
 extern crate alloc;
-extern crate flipperzero_alloc;
+extern crate flipperzero_alloc; // Required for panic handler
+extern crate flipperzero_rt;
 
 use core::ffi::{c_void, CStr};
 use core::ptr;
-use flipperzero::{format};
+use flipperzero::format;
+use flipperzero::notification::vibro::SINGLE_VIBRO;
+use flipperzero::notification::NotificationService;
 use flipperzero_rt::{entry, manifest};
 use flipperzero_sys as sys;
-use flipperzero_sys::{furi_delay_ms, Align_AlignCenter, Align_AlignLeft, Align_AlignRight, Align_AlignTop, Font_FontBigNumbers, Font_FontSecondary, InputEvent, InputKey_InputKeyBack, InputKey_InputKeyDown, InputKey_InputKeyLeft, InputKey_InputKeyOk, InputKey_InputKeyRight, InputKey_InputKeyUp, InputType_InputTypePress};
 use flipperzero_sys::furi::UnsafeRecord;
+use flipperzero_sys::{furi_delay_ms, Align_AlignCenter, Align_AlignLeft, Align_AlignRight, Align_AlignTop, Font_FontBigNumbers, Font_FontSecondary, InputEvent, InputKey_InputKeyBack, InputKey_InputKeyDown, InputKey_InputKeyLeft, InputKey_InputKeyOk, InputKey_InputKeyRight, InputKey_InputKeyUp, InputType_InputTypePress};
 
-const FULLSCREEN: sys::GuiLayer = sys::GuiLayer_GuiLayerFullscreen;
 const MAX_DICE: u8 = 99;
-const POINTER: &CStr = c">";
+const ARROW_STR: &CStr = c">";
+const COLUMN_WIDTH: i32 = 18;
+const DICE_NAMES: [&CStr; 6] = [c"d20", c"d12", c"d10", c"d8", c"d6", c"d4"];
+const DICE_SIZES: [u32; 6] = [20, 12, 10, 8, 6, 4];
 
 manifest!(name = "Dice");
 entry!(main);
+
+struct App {
+    selected: usize,
+    counts: [u8; 6],
+    quit: bool,
+    rolled: u32,
+    notifications: NotificationService,
+}
+
+impl App {
+    pub fn new() -> Self {
+        App {
+            selected: 0,
+            counts: [0, 0, 0, 0, 0, 0],
+            quit: false,
+            rolled: 0,
+            notifications: NotificationService::open(),
+        }
+    }
+}
 
 /// View draw handler.
 pub unsafe extern "C" fn draw_callback(canvas: *mut sys::Canvas, context: *mut c_void) {
@@ -49,11 +71,17 @@ pub unsafe extern "C" fn draw_callback(canvas: *mut sys::Canvas, context: *mut c
             let y_offset = canvas_height as i32 / 2;
 
             // draw the rolled number
-            sys::canvas_draw_str_aligned(canvas, x_offset, y_offset, Align_AlignLeft,
-                                         Align_AlignCenter, text.as_c_ptr());
+            sys::canvas_draw_str_aligned(
+                canvas,
+                x_offset,
+                y_offset,
+                Align_AlignLeft,
+                Align_AlignCenter,
+                text.as_c_ptr(),
+            );
         } else {
             // if the rolled number is 0, we're picking which dice to roll
-            
+
             // set the font size to the small one
             sys::canvas_set_font(canvas, Font_FontSecondary);
 
@@ -63,18 +91,37 @@ pub unsafe extern "C" fn draw_callback(canvas: *mut sys::Canvas, context: *mut c
 
                 // if this dice-type is selected, draw the pointer
                 if (*app).selected == i {
-                    sys::canvas_draw_str_aligned(canvas, 0, y_offset, Align_AlignLeft,
-                                                 Align_AlignTop, POINTER.as_ptr());
+                    sys::canvas_draw_str_aligned(
+                        canvas,
+                        0,
+                        y_offset,
+                        Align_AlignLeft,
+                        Align_AlignTop,
+                        ARROW_STR.as_ptr(),
+                    );
                 }
 
                 // draw the dice-count as right-aligned, so the d's all line up
                 // (the font is not fixed-width)
                 let count_text = format!("{}", (*app).counts[i]);
-                sys::canvas_draw_str_aligned(canvas, 18, y_offset, Align_AlignRight,
-                                             Align_AlignTop, count_text.as_c_ptr());
-                
-                sys::canvas_draw_str_aligned(canvas, 19, y_offset, Align_AlignLeft,
-                                             Align_AlignTop, DICE_NAMES[i].as_ptr());
+                sys::canvas_draw_str_aligned(
+                    canvas,
+                    COLUMN_WIDTH,
+                    y_offset,
+                    Align_AlignRight,
+                    Align_AlignTop,
+                    count_text.as_c_ptr(),
+                );
+
+                // draw the dice-type as left aligned, so it's snug against the count
+                sys::canvas_draw_str_aligned(
+                    canvas,
+                    COLUMN_WIDTH + 1,
+                    y_offset,
+                    Align_AlignLeft,
+                    Align_AlignTop,
+                    DICE_NAMES[i].as_ptr(),
+                );
             }
         }
     }
@@ -83,42 +130,45 @@ pub unsafe extern "C" fn draw_callback(canvas: *mut sys::Canvas, context: *mut c
 pub unsafe extern "C" fn input_callback(input_event: *mut InputEvent, context: *mut c_void) {
     unsafe {
         let app = context as *mut App;
-        let key = (*input_event).key;
 
+        // if the event type was not a keypress, ignore it
         if (*input_event).type_ != InputType_InputTypePress {
             return;
         }
 
-
+        // if the app is currently displaying the rolled total, the OK and Back buttons
+        // reset it to the input edit view
+        let key = (*input_event).key;
         if (*app).rolled > 0 && (key == InputKey_InputKeyOk || key == InputKey_InputKeyBack) {
             (*app).rolled = 0;
             return;
         }
 
+        // if we're in the input edit view
         match key {
+            // up and down move where the cursor is
             InputKey_InputKeyUp => {
                 (*app).selected = ((*app).selected + 6 - 1) % 6;
-            },
+            }
             InputKey_InputKeyDown => {
                 (*app).selected = ((*app).selected + 1) % 6;
-            },
+            }
+            // right and left add/subtract dice from the count
             InputKey_InputKeyLeft => {
                 let mut new_count = (*app).counts[(*app).selected];
                 if new_count > 0 {
                     new_count -= 1;
                 }
                 (*app).counts[(*app).selected] = new_count;
-            },
+            }
             InputKey_InputKeyRight => {
                 let mut new_count = (*app).counts[(*app).selected];
                 if new_count < MAX_DICE {
                     new_count += 1;
                 }
                 (*app).counts[(*app).selected] = new_count;
-            },
-            InputKey_InputKeyBack => {
-                (*app).quit = true;
-            },
+            }
+            // OK rolls the dice and displays the total
             InputKey_InputKeyOk => {
                 let mut total: u32 = 0;
                 for i in 0..6usize {
@@ -127,52 +177,38 @@ pub unsafe extern "C" fn input_callback(input_event: *mut InputEvent, context: *
                     }
                 }
                 (*app).rolled = total;
+                if total > 0 {
+                    (*app).notifications.notify(&SINGLE_VIBRO);
+                }
+            }
+            // Back exits the app
+            InputKey_InputKeyBack => {
+                (*app).quit = true;
             }
             _ => {}
         }
     }
 }
 
-const DICE_NAMES: [&CStr; 6] = [c"d20", c"d12", c"d10", c"d8", c"d6", c"d4"];
-const DICE_SIZES: [u32; 6] = [20, 12, 10, 8, 6, 4];
-
-struct App {
-    selected: usize,
-    counts: [u8; 6],
-    quit: bool,
-    rolled: u32
-}
-
-impl App {
-    pub fn new() -> Self {
-        App {
-            selected: 0,
-            counts: [0, 0, 0, 0, 0, 0],
-            quit: false,
-            rolled: 0,
-        }
-    }
-}
 
 fn main(_args: Option<&CStr>) -> i32 {
+    // create the mutable app, which is just a struct that stores our context + notification service
     let mut app = App::new();
+    // create an ugly c_void pointer to our context :(
+    let context_pointer = ptr::from_mut(&mut app) as *mut c_void;
     unsafe {
+        // create a view_port & register our drawing + input callbacks
         let view_port = sys::view_port_alloc();
-        let context_pointer = ptr::from_mut(&mut app) as *mut c_void;
-        sys::view_port_input_callback_set(
-            view_port,
-            Some(input_callback),
-            context_pointer
-        );
-        sys::view_port_draw_callback_set(
-            view_port,
-            Some(draw_callback),
-            context_pointer
-        );
+        sys::view_port_draw_callback_set(view_port, Some(draw_callback), context_pointer);
+        sys::view_port_input_callback_set(view_port, Some(input_callback), context_pointer);
 
+        // create a scope so the gui is always cleaned up at the end
         {
+            // create the gui & add it to the view port
             let gui = UnsafeRecord::open(c"gui".as_ptr());
-            sys::gui_add_view_port(gui.as_ptr(), view_port, FULLSCREEN);
+            sys::gui_add_view_port(gui.as_ptr(), view_port, sys::GuiLayer_GuiLayerFullscreen);
+
+            // keep on checking if the input callback has set the app.quit flag
             loop {
                 if app.quit {
                     break;
@@ -180,11 +216,14 @@ fn main(_args: Option<&CStr>) -> i32 {
                 furi_delay_ms(500);
             }
 
+            // clean up our viewport
             sys::view_port_enabled_set(view_port, false);
             sys::gui_remove_view_port(gui.as_ptr(), view_port);
         }
+        // free our viewport
         sys::view_port_free(view_port);
     }
 
+    // return the success status code
     0
 }
