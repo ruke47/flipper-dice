@@ -1,6 +1,8 @@
-# `flipperzero-template`🚀
+# `flipper-dice`🎲
 
-A template for kick-starting a Rust + FlipperZero project using [`flipperzero-rs`](https://github.com/flipperzero-rs/flipperzero) 🐬❤️🦀.
+A pretty simple program that I'm using to familiarize myself with embedded development.
+
+Uses the [`flipperzero-template`](https://github.com/flipperzero-rs/flipperzero-template).
 
 # Usage
 
@@ -61,3 +63,10 @@ cargo watch -s 'cargo build --release && run-fap target/thumbv7em-none-eabihf/re
 # License
 
 This template is licensed under the [MIT License](https://github.com/flipperzero-rs/flipperzero/blob/v0.7.2/LICENSE).
+
+
+# Useful Links
+- [Rust Docs](https://docs.rs/flipperzero/latest/flipperzero/index.html)
+- [View Dispatcher Example](https://github.com/flipperzero-rs/flipperzero/blob/main/crates/flipperzero/examples/view_dispatcher.rs)
+- [DrZlo13's Game Engine](https://github.com/flipperdevices/flipperzero-game-engine/blob/dev/game_engine.c)
+  - This is built in C but helped me understand hwo to use the callbacks
