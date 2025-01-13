@@ -46,7 +46,7 @@ cargo build
 The resulting `.fap` binary can be found in [`target/thumbv7em-none-eabihf/debug`](target/thumbv7em-none-eabihf/debug).
 
 ```sh
-storage send target/thumbv7em-none-eabihf/release/my-project.fap /ext/apps/Examples/my-project.fap
+storage send target/thumbv7em-none-eabihf/debug/flipper-dice.fap /ext/apps/Examples/flipper-dice.fap
 ```
 
 ## Build and run on change
@@ -57,7 +57,7 @@ storage send target/thumbv7em-none-eabihf/release/my-project.fap /ext/apps/Examp
 You can automatically build and run your binary using [`cargo-watch`](https://crates.io/crates/cargo-watch) and the `run-fap` tool.
 
 ```sh
-cargo watch -s 'cargo build --release && run-fap target/thumbv7em-none-eabihf/release/my-project.fap'
+cargo watch -s 'cargo build --release && run-fap target/thumbv7em-none-eabihf/debug/flipper-dice.fap'
 ```
 
 # License
